@@ -256,6 +256,34 @@ fn distribute_pays_recipients_and_clears_balance() {
 }
 
 #[test]
+fn balances_per_token_stay_independent() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let a = Address::generate(&s.env);
+    let payer = Address::generate(&s.env);
+    let (token_x, _) = fund_token(&s.env, &payer, 1_000);
+    let (token_y, client_y) = fund_token(&s.env, &payer, 1_000);
+
+    let id = s.client.create_split(
+        &creator,
+        &vec![&s.env, a.clone()],
+        &vec![&s.env, 10_000],
+        &None,
+    );
+
+    s.client.deposit(&payer, &id, &token_x, &300);
+    s.client.deposit(&payer, &id, &token_y, &700);
+
+    assert_eq!(s.client.balance(&id, &token_x), 300);
+    assert_eq!(s.client.balance(&id, &token_y), 700);
+
+    s.client.distribute(&id, &token_y);
+    assert_eq!(s.client.balance(&id, &token_x), 300);
+    assert_eq!(s.client.balance(&id, &token_y), 0);
+    assert_eq!(client_y.balance(&a), 700);
+}
+
+#[test]
 fn distribute_with_empty_balance_fails() {
     let s = setup();
     let creator = Address::generate(&s.env);
