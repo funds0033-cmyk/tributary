@@ -19,7 +19,12 @@ The splitter contract keeps a registry of splits. Each split holds:
 - `shares`: basis points per recipient, always summing to 10,000
 - `controller`: optional. If set, that address can change the recipients and shares later. If left empty, the split is locked forever.
 
-`pay` moves an amount of any Stellar asset from the payer to all recipients of a split in a single call. Per-recipient amounts are rounded down and the leftover dust goes to the last recipient, so the full amount always lands somewhere.
+There are two ways money moves through a split:
+
+- `pay` moves an amount of any Stellar asset from the payer straight to all recipients in a single call.
+- `deposit` parks funds inside the contract, credited to the split. Anyone can later call `distribute` to pay the whole credited balance out to the recipients. This fits cases where money arrives over time and payouts happen on a schedule.
+
+Per-recipient amounts are rounded down and the leftover dust goes to the last recipient, so the full amount always lands somewhere.
 
 ## Contract API
 
@@ -27,6 +32,9 @@ The splitter contract keeps a registry of splits. Each split holds:
 | --- | --- |
 | `create_split(creator, recipients, shares, controller)` | Registers a split and returns its id |
 | `pay(from, id, token, amount)` | Splits a payment across all recipients |
+| `deposit(from, id, token, amount)` | Credits funds to the split without paying out |
+| `distribute(id, token)` | Pays the credited balance out to all recipients |
+| `balance(id, token)` | Credited amount waiting to be distributed |
 | `update_split(id, recipients, shares)` | Controller only. Replaces the routing table |
 | `get_split(id)` | Returns a split |
 | `split_count()` | Number of splits created so far |
@@ -39,7 +47,7 @@ Early days. The core contract works, is tested and runs on testnet, but it is no
 
 | Network | Contract |
 | --- | --- |
-| Testnet | `CBRSC5MQ7QJ355VHWJLVWTXKIJBG5ZJCI75KZTPT3K5HIGGTZCIBIZCK` |
+| Testnet | `CCUGN33DKXR36WAT7YOCMRC44XZFFHM6JNUZ7U7MDICQC22PCGY7ZJSS` |
 
 ## Development
 
@@ -60,7 +68,6 @@ app                  web dashboard (planned)
 
 ## Roadmap
 
-- Balance-based distribution, so a split can receive funds sent directly to it and pay out later
 - Nested splits, where a recipient is itself another split
 - TypeScript SDK
 - Web dashboard to create and inspect splits
