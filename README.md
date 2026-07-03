@@ -38,7 +38,9 @@ Per-recipient amounts are rounded down and the leftover dust goes to the last re
 | `distribute(id, token)` | Pays the credited balance out to all recipients |
 | `balance(id, token)` | Credited amount waiting to be distributed |
 | `update_split(id, recipients, shares)` | Controller only. Replaces the routing table |
+| `transfer_control(id, new_controller)` | Controller only. Hands over control, or locks the split with None |
 | `get_split(id)` | Returns a split |
+| `splits_of(creator)` | Ids of all splits a creator registered |
 | `split_count()` | Number of splits created so far |
 
 ## Status
@@ -49,7 +51,7 @@ Early days. The core contract works, is tested and runs on testnet, but it is no
 
 | Network | Contract |
 | --- | --- |
-| Testnet | `CCUGN33DKXR36WAT7YOCMRC44XZFFHM6JNUZ7U7MDICQC22PCGY7ZJSS` |
+| Testnet | `CDRW277JGRE32EADYKFXOMQILFEAWRTQ5PK62M4HOHB4LQA4BUQWPLX5` |
 
 ## Development
 
