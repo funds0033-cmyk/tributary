@@ -181,6 +181,32 @@ fn rounding_dust_goes_to_last_recipient() {
 }
 
 #[test]
+fn preview_matches_actual_payout() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let a = Address::generate(&s.env);
+    let b = Address::generate(&s.env);
+    let c = Address::generate(&s.env);
+    let payer = Address::generate(&s.env);
+    let (token_id, token_client) = fund_token(&s.env, &payer, 1_000);
+
+    let id = s.client.create_split(
+        &creator,
+        &vec![&s.env, a.clone(), b.clone(), c.clone()],
+        &vec![&s.env, 3_333, 3_333, 3_334],
+        &None,
+    );
+
+    let preview = s.client.preview_payout(&id, &1_000);
+    assert_eq!(preview, vec![&s.env, 333, 333, 334]);
+
+    s.client.pay(&payer, &id, &token_id, &1_000);
+    assert_eq!(token_client.balance(&a), preview.get_unchecked(0));
+    assert_eq!(token_client.balance(&b), preview.get_unchecked(1));
+    assert_eq!(token_client.balance(&c), preview.get_unchecked(2));
+}
+
+#[test]
 fn rejects_non_positive_amounts() {
     let s = setup();
     let creator = Address::generate(&s.env);

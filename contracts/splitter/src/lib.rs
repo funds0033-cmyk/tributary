@@ -241,6 +241,16 @@ impl Splitter {
         Ok(amount)
     }
 
+    /// Returns the exact per-recipient amounts a payment of `amount` would
+    /// produce, without moving any funds.
+    pub fn preview_payout(env: Env, id: u64, amount: i128) -> Result<Vec<i128>, Error> {
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        let split = load(&env, id)?;
+        Ok(amounts(&env, &split, amount))
+    }
+
     pub fn balance(env: Env, id: u64, token: Address) -> i128 {
         env.storage()
             .persistent()
