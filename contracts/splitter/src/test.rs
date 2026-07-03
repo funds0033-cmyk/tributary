@@ -2,7 +2,7 @@
 
 use super::*;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{vec, Env};
+use soroban_sdk::{vec, Env, IntoVal};
 
 struct Setup {
     env: Env,
@@ -223,6 +223,57 @@ fn rejects_non_positive_amounts() {
 
     let negative = s.client.try_pay(&payer, &id, &token_id, &-5);
     assert_eq!(negative, Err(Ok(Error::InvalidAmount)));
+}
+
+#[test]
+fn pay_requires_the_payers_authorization() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let a = Address::generate(&s.env);
+    let payer = Address::generate(&s.env);
+    let intruder = Address::generate(&s.env);
+    let (token_id, _) = fund_token(&s.env, &payer, 1_000);
+
+    let id = s
+        .client
+        .create_split(&creator, &vec![&s.env, a], &vec![&s.env, 10_000], &None);
+
+    s.env.set_auths(&[]);
+    let result = s.env.try_invoke_contract::<(), Error>(
+        &s.client.address,
+        &soroban_sdk::symbol_short!("pay"),
+        (&intruder, id, &token_id, 100i128).into_val(&s.env),
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn conservation_holds_across_share_mixes() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let payer = Address::generate(&s.env);
+    let (token_id, token_client) = fund_token(&s.env, &payer, 100_000);
+
+    let cases = [
+        (vec![&s.env, 9_999u32, 1u32], 777i128),
+        (vec![&s.env, 5_000u32, 4_999u32, 1u32], 1_003i128),
+        (vec![&s.env, 1_000u32, 2_000u32, 3_000u32, 4_000u32], 99i128),
+    ];
+
+    for (shares, amount) in cases {
+        let mut recipients = vec![&s.env];
+        for _ in 0..shares.len() {
+            recipients.push_back(Address::generate(&s.env));
+        }
+        let id = s.client.create_split(&creator, &recipients, &shares, &None);
+        s.client.pay(&payer, &id, &token_id, &amount);
+
+        let mut received: i128 = 0;
+        for r in recipients.iter() {
+            received += token_client.balance(&r);
+        }
+        assert_eq!(received, amount);
+    }
 }
 
 #[test]
