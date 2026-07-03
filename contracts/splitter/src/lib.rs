@@ -31,12 +31,20 @@ pub enum Error {
     InvalidAmount = 7,
     NothingToDistribute = 8,
     TooManyRecipients = 9,
+    BadChildSplit = 10,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Recipient {
+    Account(Address),
+    Split(u64),
 }
 
 #[contracttype]
 #[derive(Clone)]
 pub struct Split {
-    pub recipients: Vec<Address>,
+    pub recipients: Vec<Recipient>,
     pub shares: Vec<u32>,
     pub controller: Option<Address>,
 }
@@ -111,14 +119,13 @@ impl Splitter {
     pub fn create_split(
         env: Env,
         creator: Address,
-        recipients: Vec<Address>,
+        recipients: Vec<Recipient>,
         shares: Vec<u32>,
         controller: Option<Address>,
     ) -> Result<u64, Error> {
         creator.require_auth();
-        validate(&recipients, &shares)?;
-
         let id: u64 = env.storage().instance().get(&DataKey::Count).unwrap_or(0);
+        validate(&env, id, &recipients, &shares)?;
         let split = Split {
             recipients,
             shares,
@@ -166,13 +173,13 @@ impl Splitter {
     pub fn update_split(
         env: Env,
         id: u64,
-        recipients: Vec<Address>,
+        recipients: Vec<Recipient>,
         shares: Vec<u32>,
     ) -> Result<(), Error> {
         let mut split = load(&env, id)?;
         let controller = split.controller.clone().ok_or(Error::SplitImmutable)?;
         controller.require_auth();
-        validate(&recipients, &shares)?;
+        validate(&env, id, &recipients, &shares)?;
         split.recipients = recipients;
         split.shares = shares;
         env.storage().persistent().set(&DataKey::Split(id), &split);
@@ -213,10 +220,7 @@ impl Splitter {
         load(&env, id)?;
         let vault = env.current_contract_address();
         token::Client::new(&env, &token).transfer(&from, &vault, &amount);
-        let key = DataKey::Balance(id, token.clone());
-        let held: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        env.storage().persistent().set(&key, &(held + amount));
-        Deposited { id, token, amount }.publish(&env);
+        credit(&env, id, &token, amount);
         Ok(())
     }
 
@@ -274,7 +278,12 @@ impl Splitter {
     }
 }
 
-fn validate(recipients: &Vec<Address>, shares: &Vec<u32>) -> Result<(), Error> {
+fn validate(
+    env: &Env,
+    own_id: u64,
+    recipients: &Vec<Recipient>,
+    shares: &Vec<u32>,
+) -> Result<(), Error> {
     if recipients.is_empty() {
         return Err(Error::NoRecipients);
     }
@@ -283,6 +292,14 @@ fn validate(recipients: &Vec<Address>, shares: &Vec<u32>) -> Result<(), Error> {
     }
     if recipients.len() != shares.len() {
         return Err(Error::LengthMismatch);
+    }
+    for recipient in recipients.iter() {
+        if let Recipient::Split(child) = recipient {
+            let exists = env.storage().persistent().has(&DataKey::Split(child));
+            if child == own_id || !exists {
+                return Err(Error::BadChildSplit);
+            }
+        }
     }
     let mut total: u32 = 0;
     for share in shares.iter() {
@@ -315,13 +332,35 @@ fn amounts(env: &Env, split: &Split, amount: i128) -> Vec<i128> {
 
 fn payout(env: &Env, split: &Split, from: &Address, token: &Address, amount: i128) {
     let client = token::Client::new(env, token);
+    let vault = env.current_contract_address();
     let parts = amounts(env, split, amount);
     for i in 0..split.recipients.len() {
         let part = parts.get_unchecked(i);
-        if part > 0 {
-            client.transfer(from, &split.recipients.get_unchecked(i), &part);
+        if part <= 0 {
+            continue;
+        }
+        match split.recipients.get_unchecked(i) {
+            Recipient::Account(addr) => client.transfer(from, &addr, &part),
+            Recipient::Split(child) => {
+                if from != &vault {
+                    client.transfer(from, &vault, &part);
+                }
+                credit(env, child, token, part);
+            }
         }
     }
+}
+
+fn credit(env: &Env, id: u64, token: &Address, amount: i128) {
+    let key = DataKey::Balance(id, token.clone());
+    let held: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+    env.storage().persistent().set(&key, &(held + amount));
+    Deposited {
+        id,
+        token: token.clone(),
+        amount,
+    }
+    .publish(env);
 }
 
 fn load(env: &Env, id: u64) -> Result<Split, Error> {
