@@ -1,8 +1,12 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env, Vec,
+    contract, contracterror, contractevent, contractimpl, contractmeta, contracttype, token,
+    Address, Env, Vec,
 };
+
+contractmeta!(key = "name", val = "tributary-splitter");
+contractmeta!(key = "source", val = "https://github.com/tributary-protocol/tributary");
 
 pub const TOTAL_SHARES: u32 = 10_000;
 pub const MAX_RECIPIENTS: u32 = 32;
