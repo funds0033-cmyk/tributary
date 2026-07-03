@@ -11,6 +11,7 @@ import CreateSplit from "./components/CreateSplit";
 import PaySplit from "./components/PaySplit";
 import EscrowCard from "./components/EscrowCard";
 import SplitList from "./components/SplitList";
+import Activity from "./components/Activity";
 
 export default function App() {
   const [wallet, setWallet] = useState<string | null>(null);
@@ -83,6 +84,8 @@ export default function App() {
             {loading ? "Refreshing…" : "Refresh"}
           </button>
         </div>
+
+        <Activity />
       </main>
 
       <footer>

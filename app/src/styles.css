@@ -265,6 +265,30 @@ select.kind {
   color: var(--muted);
 }
 
+.activity {
+  margin-top: 36px;
+}
+
+.activity ul {
+  list-style: none;
+  padding: 0;
+  margin-top: 12px;
+}
+
+.activity li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.activity li span:nth-child(2) {
+  flex: 1;
+  color: var(--muted);
+}
+
 footer {
   display: flex;
   justify-content: space-between;
