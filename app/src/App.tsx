@@ -32,19 +32,23 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [nextSplits, nextActivity] = await Promise.all([
+      const [nextSplits, nextActivity, nextMine] = await Promise.all([
         fetchSplits(),
         fetchActivity().catch(() => [] as ActivityItem[]),
+        wallet
+          ? fetchMineIds(wallet).catch(() => new Set<string>())
+          : Promise.resolve(new Set<string>()),
       ]);
       setSplits(nextSplits);
       setActivity(nextActivity);
+      setMine(nextMine);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [wallet]);
 
   useEffect(() => {
     refresh();
@@ -63,10 +67,8 @@ export default function App() {
 
   async function onConnect() {
     try {
-      const address = await connectWallet();
-      setWallet(address);
+      setWallet(await connectWallet());
       setError(null);
-      setMine(await fetchMineIds(address));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
