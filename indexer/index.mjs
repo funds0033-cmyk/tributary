@@ -1,0 +1,86 @@
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { rpc, scValToNative } from "@stellar/stellar-sdk";
+
+const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
+const CONTRACT_ID =
+  process.env.CONTRACT_ID ?? "CD72QCORFZPWSIHYBPMFJ42MGMESYZ2X5NXIMUT2RAC7TVXUJVVVAFFL";
+const OUT = process.env.OUT ?? "events.ndjson";
+const STATE = process.env.STATE ?? "state.json";
+const POLL_MS = Number(process.env.POLL_MS ?? 10_000);
+
+const server = new rpc.Server(RPC_URL);
+
+function loadCursor() {
+  if (!existsSync(STATE)) return null;
+  return JSON.parse(readFileSync(STATE, "utf8")).cursor ?? null;
+}
+
+function saveCursor(cursor) {
+  writeFileSync(STATE, JSON.stringify({ cursor }));
+}
+
+function decode(ev) {
+  const record = {
+    ledger: ev.ledger,
+    txHash: ev.txHash,
+    id: ev.id,
+    at: ev.ledgerClosedAt,
+  };
+  try {
+    record.type = scValToNative(ev.topic[0]);
+    if (ev.topic.length > 1) record.split = String(scValToNative(ev.topic[1]));
+    const data = scValToNative(ev.value);
+    if (data && typeof data === "object") {
+      for (const [key, value] of Object.entries(data)) {
+        record[key] = typeof value === "bigint" ? String(value) : value;
+      }
+    }
+  } catch {
+    record.type = "undecoded";
+  }
+  return record;
+}
+
+function cursorLedger(cursor) {
+  return Number(BigInt(cursor.split("-")[0]) >> 32n);
+}
+
+// getEvents scans at most ~10k ledgers per call, so one poll pages the
+// cursor forward until it catches up with the chain head.
+async function poll() {
+  let cursor = loadCursor();
+  const filters = [{ type: "contract", contractIds: [CONTRACT_ID] }];
+  let total = 0;
+
+  for (;;) {
+    const request = cursor
+      ? { cursor, filters, limit: 100 }
+      : {
+          startLedger: Math.max(
+            1,
+            (await server.getLatestLedger()).sequence - 100_000,
+          ),
+          filters,
+          limit: 100,
+        };
+
+    const res = await server.getEvents(request);
+    for (const ev of res.events) {
+      appendFileSync(OUT, JSON.stringify(decode(ev)) + "\n");
+    }
+    total += res.events.length;
+
+    if (!res.cursor || res.cursor === cursor) break;
+    cursor = res.cursor;
+    saveCursor(cursor);
+    if (res.events.length < 100 && cursorLedger(cursor) >= res.latestLedger) {
+      break;
+    }
+  }
+
+  if (total > 0) console.log(`indexed ${total} events`);
+}
+
+console.log(`indexing ${CONTRACT_ID} from ${RPC_URL} every ${POLL_MS}ms`);
+await poll();
+setInterval(() => poll().catch((e) => console.error(e.message ?? e)), POLL_MS);
