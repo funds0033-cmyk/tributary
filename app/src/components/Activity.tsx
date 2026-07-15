@@ -13,6 +13,24 @@ const LABELS: Record<string, string> = {
 export default function Activity({ items }: { items: ActivityItem[] }) {
   if (items.length === 0) return null;
 
+  const exportCSV = () => {
+    const header = "eventId,type,id,amount,token,ledger,txHash";
+    const rows = items.map((item) => {
+      const amount = item.amount !== undefined ? fromStroops(item.amount) : "";
+      const token = item.token ?? "";
+      const id = item.id !== undefined ? item.id.toString() : "";
+      return `${item.eventId},${item.type},${id},${amount},${token},${item.ledger},${item.txHash}`;
+    });
+    const csv = [header, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "activity.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <motion.section
       className="activity"
@@ -21,6 +39,7 @@ export default function Activity({ items }: { items: ActivityItem[] }) {
       transition={{ duration: 0.5, delay: 0.2 }}
     >
       <h2>Recent activity</h2>
+      <button onClick={exportCSV}>Export CSV</button>
       <ul>
         <AnimatePresence initial={false}>
           {items.map((item) => (
