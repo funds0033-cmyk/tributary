@@ -66,6 +66,7 @@ enum DataKey {
     Split(u64),
     Balance(u64, Address),
     Created(Address),
+    HeldTokens(u64),
 }
 
 #[contractevent]
@@ -280,6 +281,28 @@ impl Splitter {
             return Err(Error::NothingToDistribute);
         }
         env.storage().persistent().remove(&key);
+
+        let tokens_key = DataKey::HeldTokens(id);
+        if let Some(mut tokens) = env
+            .storage()
+            .persistent()
+            .get::<_, Vec<Address>>(&tokens_key)
+        {
+            if let Some(idx) = tokens.first_index_of(&token) {
+                tokens.remove(idx);
+                if tokens.is_empty() {
+                    env.storage().persistent().remove(&tokens_key);
+                } else {
+                    env.storage().persistent().set(&tokens_key, &tokens);
+                    env.storage().persistent().extend_ttl(
+                        &tokens_key,
+                        TTL_THRESHOLD,
+                        TTL_EXTEND_TO,
+                    );
+                }
+            }
+        }
+
         payout(
             &env,
             &split,
@@ -310,6 +333,13 @@ impl Splitter {
 
     pub fn get_split(env: Env, id: u64) -> Result<Split, Error> {
         load(&env, id)
+    }
+
+    pub fn held_tokens(env: Env, id: u64) -> Vec<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::HeldTokens(id))
+            .unwrap_or_else(|| Vec::new(&env))
     }
 
     pub fn splits_of(env: Env, creator: Address) -> Vec<u64> {
@@ -409,6 +439,21 @@ fn credit(env: &Env, id: u64, token: &Address, amount: i128) {
     let key = DataKey::Balance(id, token.clone());
     let held: i128 = env.storage().persistent().get(&key).unwrap_or(0);
     env.storage().persistent().set(&key, &(held + amount));
+
+    let tokens_key = DataKey::HeldTokens(id);
+    let mut tokens: Vec<Address> = env
+        .storage()
+        .persistent()
+        .get(&tokens_key)
+        .unwrap_or_else(|| Vec::new(env));
+    if !tokens.contains(token) {
+        tokens.push_back(token.clone());
+        env.storage().persistent().set(&tokens_key, &tokens);
+        env.storage()
+            .persistent()
+            .extend_ttl(&tokens_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+    }
+
     Deposited {
         id,
         token: token.clone(),

@@ -670,3 +670,46 @@ fn large_payment_does_not_overflow_share_math() {
     assert_eq!(a_bal + b_bal + c_bal, amount);
     assert_eq!(token_client.balance(&payer), 0);
 }
+
+#[test]
+fn held_tokens_tracking() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let a = Address::generate(&s.env);
+    let payer = Address::generate(&s.env);
+
+    let (token_x, _) = fund_token(&s.env, &payer, 1_000);
+    let (token_y, _) = fund_token(&s.env, &payer, 1_000);
+
+    let id = s.client.create_split(
+        &creator,
+        &vec![&s.env, acct(&a)],
+        &vec![&s.env, 10_000],
+        &None,
+    );
+
+    // Initial state: no held tokens
+    assert_eq!(s.client.held_tokens(&id), vec![&s.env]);
+
+    // 1. Credit adds a token once
+    s.client.deposit(&payer, &id, &token_x, &100);
+    assert_eq!(s.client.held_tokens(&id), vec![&s.env, token_x.clone()]);
+
+    // 2. A repeat credit does not duplicate it
+    s.client.deposit(&payer, &id, &token_x, &100);
+    assert_eq!(s.client.held_tokens(&id), vec![&s.env, token_x.clone()]);
+
+    // Add another token
+    s.client.deposit(&payer, &id, &token_y, &200);
+    assert_eq!(
+        s.client.held_tokens(&id),
+        vec![&s.env, token_x.clone(), token_y.clone()]
+    );
+
+    // 3. Distribute removes the token
+    s.client.distribute(&id, &token_x);
+    assert_eq!(s.client.held_tokens(&id), vec![&s.env, token_y.clone()]);
+
+    s.client.distribute(&id, &token_y);
+    assert_eq!(s.client.held_tokens(&id), vec![&s.env]);
+}
