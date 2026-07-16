@@ -1,10 +1,9 @@
 #![cfg(test)]
+extern crate alloc;
 
 use super::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{vec, Env, IntoVal};
-use proptest::prelude::*;
-
 struct Setup {
     env: Env,
     client: SplitterClient<'static>,
@@ -625,47 +624,78 @@ fn immutable_split_cannot_be_updated() {
 
 #[test]
 fn property_conservation_random_shares() {
-    proptest::prop_assert!(
-        proptest::test_runner::TestRunner::default()
-            .run(
-                &(
-                    proptest::collection::vec(1u32..=10_000u32, 2..10usize),
-                    1i128..1_000_000i128,
-                ),
-                |(shares, amount)| {
-                    // Setup environment
-                    let env = soroban_sdk::Env::default();
-                    env.mock_all_auths();
-                    let contract_id = env.register(Splitter, ());
-                    let client = SplitterClient::new(&env, &contract_id);
-                    let creator = soroban_sdk::Address::generate(&env);
+    assert!(proptest::test_runner::TestRunner::default()
+        .run(
+            &(
+                proptest::collection::vec(1u32..=10_000u32, 2..10usize),
+                1i128..1_000_000i128,
+            ),
+            |(shares, amount)| {
+                // Setup environment
+                let env = soroban_sdk::Env::default();
+                env.mock_all_auths();
+                let contract_id = env.register(Splitter, ());
+                let client = SplitterClient::new(&env, &contract_id);
+                let creator = soroban_sdk::Address::generate(&env);
 
-                    // Generate recipients matching shares length
-                    let mut recipients = soroban_sdk::vec![&env];
-                    let mut addrs = Vec::new();
-                    for _ in shares.iter() {
-                        let addr = soroban_sdk::Address::generate(&env);
-                        recipients.push_back(acct(&addr));
-                        addrs.push(addr);
-                    }
+                // Normalize shares to sum to exactly 10_000
+                let sum: u32 = shares.iter().sum();
+                let mut normalized_shares = alloc::vec::Vec::new();
+                let mut current_sum = 0;
+                for share in shares.iter().take(shares.len() - 1) {
+                    let normalized = ((*share as u64 * 10_000) / sum as u64) as u32;
+                    let normalized = normalized.max(1);
+                    normalized_shares.push(normalized);
+                    current_sum += normalized;
+                }
+                if current_sum >= 10_000 {
+                    return Err(proptest::test_runner::TestCaseError::reject(
+                        "shares sum exceeded total",
+                    ));
+                }
+                let last_share = 10_000 - current_sum;
+                if last_share == 0 {
+                    return Err(proptest::test_runner::TestCaseError::reject(
+                        "last share is zero",
+                    ));
+                }
+                normalized_shares.push(last_share);
 
-                    // Create split and pay
-                    let id = client.create_split(&creator, &recipients, &shares, &None);
-                    let payer = soroban_sdk::Address::generate(&env);
-                    let (token_id, token_client) = fund_token(&env, &payer, amount);
-                    client.pay(&payer, &id, &token_id, &amount);
+                // Generate recipients matching shares length
+                let mut recipients = soroban_sdk::vec![&env];
+                let mut addrs = alloc::vec::Vec::new();
+                for _ in normalized_shares.iter() {
+                    let addr = soroban_sdk::Address::generate(&env);
+                    recipients.push_back(acct(&addr));
+                    addrs.push(addr);
+                }
 
-                    // Sum balances and assert conservation
-                    let mut received: i128 = 0;
-                    for addr in addrs.iter() {
-                        received += token_client.balance(&addr);
-                    }
-                    prop_assert_eq!(received, amount);
-                    Ok(())
-                },
-            )
-            .is_ok()
-    );
+                // Convert shares to soroban Vec
+                let mut soroban_shares = soroban_sdk::Vec::new(&env);
+                for share in normalized_shares.iter() {
+                    soroban_shares.push_back(*share);
+                }
+
+                // Create split and pay
+                let id = client.create_split(&creator, &recipients, &soroban_shares, &None);
+                let payer = soroban_sdk::Address::generate(&env);
+                let (token_id, token_client) = fund_token(&env, &payer, amount);
+                client.pay(&payer, &id, &token_id, &amount);
+
+                // Sum balances and assert conservation
+                let mut received: i128 = 0;
+                for addr in addrs.iter() {
+                    received += token_client.balance(addr);
+                }
+                if received != amount {
+                    return Err(proptest::test_runner::TestCaseError::fail(
+                        "conservation failed",
+                    ));
+                }
+                Ok(())
+            },
+        )
+        .is_ok());
 }
 
 // Regression for #42: a high-supply token can be paid an amount large enough
@@ -757,5 +787,4 @@ fn held_tokens_tracking() {
 
     s.client.distribute(&id, &token_y);
     assert_eq!(s.client.held_tokens(&id), vec![&s.env]);
-}
 }
