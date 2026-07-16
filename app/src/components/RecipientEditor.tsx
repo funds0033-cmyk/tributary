@@ -77,7 +77,7 @@ export default function RecipientEditor({
             value={row.percent}
             onChange={(e) => setRow(i, { percent: e.target.value })}
           />
-          <span className="unit">%</span>
+          <span className="unit" title="Percentage of the total payment this recipient receives. Stored on-chain as basis points (1% = 100 basis points).">% ⓘ</span>
           {rows.length > 1 && (
             <button
               className="ghost"

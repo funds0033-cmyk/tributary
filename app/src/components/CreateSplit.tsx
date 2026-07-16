@@ -96,6 +96,9 @@ export default function CreateSplit({
         />
         I can edit this split later (uncheck to lock it forever)
       </label>
+      <p className="hint" title="When a payment cannot be divided evenly, the tiny remainder (dust) goes to the last recipient so the full amount always lands somewhere.">
+        ⓘ Rounding dust goes to the last recipient.
+      </p>
       <button disabled={busy} onClick={submit}>
         {busy ? "Waiting for signature…" : "Create split"}
       </button>
