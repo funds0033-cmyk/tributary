@@ -1,5 +1,6 @@
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { rpc, scValToNative } from "@stellar/stellar-sdk";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer, cursorLedger, decode } from "./replay.mjs";
+import { upsertEvents } from "./storage.mjs";
 
 const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
 const CONTRACT_ID =
@@ -8,7 +9,7 @@ const OUT = process.env.OUT ?? "events.ndjson";
 const STATE = process.env.STATE ?? "state.json";
 const POLL_MS = Number(process.env.POLL_MS ?? 10_000);
 
-const server = new rpc.Server(RPC_URL);
+const server = createServer(RPC_URL);
 
 function loadCursor() {
   if (!existsSync(STATE)) return null;
@@ -17,32 +18,6 @@ function loadCursor() {
 
 function saveCursor(cursor) {
   writeFileSync(STATE, JSON.stringify({ cursor }));
-}
-
-function decode(ev) {
-  const record = {
-    ledger: ev.ledger,
-    txHash: ev.txHash,
-    id: ev.id,
-    at: ev.ledgerClosedAt,
-  };
-  try {
-    record.type = scValToNative(ev.topic[0]);
-    if (ev.topic.length > 1) record.split = String(scValToNative(ev.topic[1]));
-    const data = scValToNative(ev.value);
-    if (data && typeof data === "object") {
-      for (const [key, value] of Object.entries(data)) {
-        record[key] = typeof value === "bigint" ? String(value) : value;
-      }
-    }
-  } catch {
-    record.type = "undecoded";
-  }
-  return record;
-}
-
-function cursorLedger(cursor) {
-  return Number(BigInt(cursor.split("-")[0]) >> 32n);
 }
 
 let isPolling = false;
@@ -88,9 +63,7 @@ async function poll() {
           };
 
       const res = await server.getEvents(request);
-      for (const ev of res.events) {
-        appendFileSync(OUT, JSON.stringify(decode(ev)) + "\n");
-      }
+      upsertEvents(OUT, res.events.map(decode));
       total += res.events.length;
 
       if (!res.cursor || res.cursor === cursor) break;

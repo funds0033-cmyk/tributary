@@ -18,6 +18,19 @@ Each event becomes one line in `events.ndjson`:
 
 The RPC cursor is persisted to `state.json`, so restarts continue where they left off instead of re-indexing.
 
+## Replay a ledger range
+
+Replay an inclusive ledger range into the same event store:
+
+```bash
+npm run replay -- 580000 590000
+```
+
+The replay command uses the same `RPC_URL`, `CONTRACT_ID`, and `OUT` configuration as
+the poller. Events are upserted by their RPC event ID, so running the same replay more
+than once produces the same stored output. Replay does not change the live poller's
+cursor in `STATE`.
+
 ## Configuration
 
 Environment variables, all optional:
@@ -79,4 +92,3 @@ node export-csv.mjs > events.csv
 ```
 
 Note that public RPC only retains about a week of events. For a full history from genesis, run against your own RPC with extended retention, or start the indexer early and keep it running.
-

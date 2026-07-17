@@ -679,26 +679,6 @@ fn property_conservation_random_shares() {
 
                 // Create split and pay
                 let id = client.create_split(&creator, &recipients, &soroban_shares, &None);
-                // Generate recipients matching shares length
-                let mut recipients = soroban_sdk::vec![&env];
-                let mut addrs = soroban_sdk::Vec::new(&env);
-                let mut sdk_shares = soroban_sdk::Vec::new(&env);
-                for share in shares.iter() {
-                    let addr = soroban_sdk::Address::generate(&env);
-                    recipients.push_back(acct(&addr));
-                    addrs.push_back(addr.clone());
-                    sdk_shares.push_back(*share);
-                }
-
-                // Create split and pay
-                // Skip invalid share configurations to focus on conservation for valid ones
-                if client
-                    .try_create_split(&creator, &recipients, &sdk_shares, &None)
-                    .is_err()
-                {
-                    return Ok(());
-                }
-                let id = client.create_split(&creator, &recipients, &sdk_shares, &None);
 
                 let payer = soroban_sdk::Address::generate(&env);
                 let (token_id, token_client) = fund_token(&env, &payer, amount);
@@ -714,13 +694,12 @@ fn property_conservation_random_shares() {
                         "conservation failed",
                     ));
                 }
-                    received += token_client.balance(&addr);
-                }
-                proptest::prop_assert_eq!(received, amount);
                 Ok(())
             },
         )
         .is_ok());
+}
+
 // Turns arbitrary positive weights into basis-point shares that sum to
 // exactly TOTAL_SHARES, using the same floor-with-remainder-to-last approach
 // as `amounts` in lib.rs, so `create_split`'s share-total check accepts them.
