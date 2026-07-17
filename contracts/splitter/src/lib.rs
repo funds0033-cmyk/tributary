@@ -43,6 +43,8 @@ pub enum Error {
     /// `validate` forbids, but we surface it as a typed error rather than panic.
     ArithmeticOverflow = 11,
     SplitHasBalance = 12,
+    /// Calling `accept_control` on a split that has no pending transfer.
+    NoPendingTransfer = 13,
 }
 
 #[contracttype]
@@ -68,6 +70,7 @@ enum DataKey {
     Balance(u64, Address),
     Created(Address),
     HeldTokens(u64),
+    PendingController(u64),
 }
 
 #[contractevent]
@@ -99,6 +102,14 @@ pub struct SplitUpdated {
 pub struct SplitClosed {
     #[topic]
     pub id: u64,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ControlTransferProposed {
+    #[topic]
+    pub id: u64,
+    pub new_controller: Address,
 }
 
 #[contractevent]
@@ -242,19 +253,88 @@ impl Splitter {
         Ok(())
     }
 
-    /// Hands control of a mutable split to another address, or locks it
-    /// forever when the new controller is None.
+    /// Proposes transferring control to a new address (two-step), or locks the
+    /// split forever when `new_controller` is `None`.
+    ///
+    /// When `Some(addr)`, a pending controller is recorded and `accept_control`
+    /// must be called by that address to finalise the handover. The current
+    /// controller can cancel the proposal with `cancel_transfer`.
+    ///
+    /// When `None`, control is renounced immediately and irreversibly.
     pub fn transfer_control(
         env: Env,
         id: u64,
         new_controller: Option<Address>,
     ) -> Result<(), Error> {
-        let mut split = load(&env, id)?;
+        let split = load(&env, id)?;
         let controller = split.controller.clone().ok_or(Error::SplitImmutable)?;
         controller.require_auth();
-        split.controller = new_controller.clone();
+
+        match new_controller {
+            None => {
+                // Renounce immediately — no recovery possible.
+                let mut split = split;
+                split.controller = None;
+                env.storage().persistent().set(&DataKey::Split(id), &split);
+                ControlTransferred {
+                    id,
+                    new_controller: None,
+                }
+                .publish(&env);
+            }
+            Some(addr) => {
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::PendingController(id), &addr);
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&DataKey::PendingController(id), TTL_THRESHOLD, TTL_EXTEND_TO);
+                ControlTransferProposed {
+                    id,
+                    new_controller: addr,
+                }
+                .publish(&env);
+            }
+        }
+        Ok(())
+    }
+
+    /// Accepts a pending control transfer. Only the proposed controller may
+    /// call this, after which they become the split's controller.
+    pub fn accept_control(env: Env, id: u64) -> Result<(), Error> {
+        let pending = env
+            .storage()
+            .persistent()
+            .get::<_, Address>(&DataKey::PendingController(id))
+            .ok_or(Error::NoPendingTransfer)?;
+
+        pending.require_auth();
+
+        let mut split = load(&env, id)?;
+        split.controller = Some(pending.clone());
         env.storage().persistent().set(&DataKey::Split(id), &split);
-        ControlTransferred { id, new_controller }.publish(&env);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingController(id));
+
+        ControlTransferred {
+            id,
+            new_controller: Some(pending),
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Cancels a pending control transfer. Only the current controller may
+    /// call this. Does nothing if no transfer is pending.
+    pub fn cancel_transfer(env: Env, id: u64) -> Result<(), Error> {
+        let split = load(&env, id)?;
+        let controller = split.controller.clone().ok_or(Error::SplitImmutable)?;
+        controller.require_auth();
+
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingController(id));
         Ok(())
     }
 
@@ -271,6 +351,9 @@ impl Splitter {
         }
 
         env.storage().persistent().remove(&DataKey::Split(id));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PendingController(id));
         SplitClosed { id }.publish(&env);
         Ok(())
     }
@@ -385,6 +468,12 @@ impl Splitter {
 
     pub fn split_count(env: Env) -> u64 {
         env.storage().instance().get(&DataKey::Count).unwrap_or(0)
+    }
+
+    pub fn pending_controller(env: Env, id: u64) -> Option<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::PendingController(id))
     }
 }
 

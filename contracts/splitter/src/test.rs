@@ -548,7 +548,82 @@ fn deposit_to_unknown_split_fails() {
 }
 
 #[test]
-fn control_can_be_transferred_and_renounced() {
+fn transfer_control_proposes_then_accepts() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let controller = Address::generate(&s.env);
+    let next = Address::generate(&s.env);
+    let a = Address::generate(&s.env);
+
+    let id = s.client.create_split(
+        &creator,
+        &vec![&s.env, acct(&a)],
+        &vec![&s.env, 10_000],
+        &Some(controller.clone()),
+    );
+
+    // Propose transfer — pending is set, controller unchanged
+    s.client.transfer_control(&id, &Some(next.clone()));
+    assert_eq!(s.client.get_split(&id).controller, Some(controller.clone()));
+    assert_eq!(s.client.pending_controller(&id), Some(next.clone()));
+
+    // Accept — control moves to next
+    s.client.accept_control(&id);
+    assert_eq!(s.client.get_split(&id).controller, Some(next.clone()));
+    assert_eq!(s.client.pending_controller(&id), None);
+}
+
+#[test]
+fn accept_control_by_wrong_address_fails() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let controller = Address::generate(&s.env);
+    let next = Address::generate(&s.env);
+    let _intruder = Address::generate(&s.env);
+    let a = Address::generate(&s.env);
+
+    let id = s.client.create_split(
+        &creator,
+        &vec![&s.env, acct(&a)],
+        &vec![&s.env, 10_000],
+        &Some(controller.clone()),
+    );
+
+    s.client.transfer_control(&id, &Some(next.clone()));
+
+    // Intruder tries to accept — auth fails because mock_all_auths won't be set
+    s.env.set_auths(&[]);
+    let result = s.env.try_invoke_contract::<(), Error>(
+        &s.client.address,
+        &soroban_sdk::Symbol::new(&s.env, "accept_control"),
+        (&id,).into_val(&s.env),
+    );
+    assert!(result.is_err());
+
+    // Controller still unchanged
+    assert_eq!(s.client.get_split(&id).controller, Some(controller.clone()));
+}
+
+#[test]
+fn accept_control_with_no_pending_fails() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let controller = Address::generate(&s.env);
+    let a = Address::generate(&s.env);
+
+    let id = s.client.create_split(
+        &creator,
+        &vec![&s.env, acct(&a)],
+        &vec![&s.env, 10_000],
+        &Some(controller),
+    );
+
+    let result = s.client.try_accept_control(&id);
+    assert_eq!(result, Err(Ok(Error::NoPendingTransfer)));
+}
+
+#[test]
+fn cancel_transfer_clears_pending() {
     let s = setup();
     let creator = Address::generate(&s.env);
     let controller = Address::generate(&s.env);
@@ -563,11 +638,62 @@ fn control_can_be_transferred_and_renounced() {
     );
 
     s.client.transfer_control(&id, &Some(next.clone()));
-    assert_eq!(s.client.get_split(&id).controller, Some(next));
+    assert_eq!(s.client.pending_controller(&id), Some(next.clone()));
 
+    // Cancel — pending cleared, controller stays
+    s.client.cancel_transfer(&id);
+    assert_eq!(s.client.pending_controller(&id), None);
+    assert_eq!(s.client.get_split(&id).controller, Some(controller.clone()));
+}
+
+#[test]
+fn cancel_transfer_by_non_controller_fails() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let controller = Address::generate(&s.env);
+    let next = Address::generate(&s.env);
+    let a = Address::generate(&s.env);
+
+    let id = s.client.create_split(
+        &creator,
+        &vec![&s.env, acct(&a)],
+        &vec![&s.env, 10_000],
+        &Some(controller.clone()),
+    );
+
+    s.client.transfer_control(&id, &Some(next.clone()));
+
+    s.env.set_auths(&[]);
+    let result = s.env.try_invoke_contract::<(), Error>(
+        &s.client.address,
+        &soroban_sdk::Symbol::new(&s.env, "cancel_transfer"),
+        (&id,).into_val(&s.env),
+    );
+    assert!(result.is_err());
+
+    // Pending still intact
+    assert_eq!(s.client.pending_controller(&id), Some(next));
+}
+
+#[test]
+fn renounce_control_still_works_in_one_step() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let controller = Address::generate(&s.env);
+    let a = Address::generate(&s.env);
+
+    let id = s.client.create_split(
+        &creator,
+        &vec![&s.env, acct(&a)],
+        &vec![&s.env, 10_000],
+        &Some(controller.clone()),
+    );
+
+    // Renounce — immediate and irreversible
     s.client.transfer_control(&id, &None);
     assert_eq!(s.client.get_split(&id).controller, None);
 
+    // Split is now immutable
     let update = s
         .client
         .try_update_split(&id, &vec![&s.env, acct(&a)], &vec![&s.env, 10_000]);
@@ -575,6 +701,29 @@ fn control_can_be_transferred_and_renounced() {
 
     let transfer = s.client.try_transfer_control(&id, &None);
     assert_eq!(transfer, Err(Ok(Error::SplitImmutable)));
+}
+
+#[test]
+fn propose_then_cancel_then_accept_still_fails() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let controller = Address::generate(&s.env);
+    let next = Address::generate(&s.env);
+    let a = Address::generate(&s.env);
+
+    let id = s.client.create_split(
+        &creator,
+        &vec![&s.env, acct(&a)],
+        &vec![&s.env, 10_000],
+        &Some(controller.clone()),
+    );
+
+    s.client.transfer_control(&id, &Some(next.clone()));
+    s.client.cancel_transfer(&id);
+
+    // Accept after cancel should fail
+    let result = s.client.try_accept_control(&id);
+    assert_eq!(result, Err(Ok(Error::NoPendingTransfer)));
 }
 
 #[test]
@@ -623,104 +772,7 @@ fn immutable_split_cannot_be_updated() {
     assert_eq!(result, Err(Ok(Error::SplitImmutable)));
 }
 
-#[test]
-fn property_conservation_random_shares() {
-    assert!(proptest::test_runner::TestRunner::default()
-        .run(
-            &(
-                proptest::collection::vec(1u32..=10_000u32, 2..10usize),
-                1i128..1_000_000i128,
-            ),
-            |(shares, amount)| {
-                // Setup environment
-                let env = soroban_sdk::Env::default();
-                env.mock_all_auths();
-                let contract_id = env.register(Splitter, ());
-                let client = SplitterClient::new(&env, &contract_id);
-                let creator = soroban_sdk::Address::generate(&env);
 
-                // Normalize shares to sum to exactly 10_000
-                let sum: u32 = shares.iter().sum();
-                let mut normalized_shares = alloc::vec::Vec::new();
-                let mut current_sum = 0;
-                for share in shares.iter().take(shares.len() - 1) {
-                    let normalized = ((*share as u64 * 10_000) / sum as u64) as u32;
-                    let normalized = normalized.max(1);
-                    normalized_shares.push(normalized);
-                    current_sum += normalized;
-                }
-                if current_sum >= 10_000 {
-                    return Err(proptest::test_runner::TestCaseError::reject(
-                        "shares sum exceeded total",
-                    ));
-                }
-                let last_share = 10_000 - current_sum;
-                if last_share == 0 {
-                    return Err(proptest::test_runner::TestCaseError::reject(
-                        "last share is zero",
-                    ));
-                }
-                normalized_shares.push(last_share);
-
-                // Generate recipients matching shares length
-                let mut recipients = soroban_sdk::vec![&env];
-                let mut addrs = alloc::vec::Vec::new();
-                for _ in normalized_shares.iter() {
-                    let addr = soroban_sdk::Address::generate(&env);
-                    recipients.push_back(acct(&addr));
-                    addrs.push(addr);
-                }
-
-                // Convert shares to soroban Vec
-                let mut soroban_shares = soroban_sdk::Vec::new(&env);
-                for share in normalized_shares.iter() {
-                    soroban_shares.push_back(*share);
-                }
-
-                // Create split and pay
-                let id = client.create_split(&creator, &recipients, &soroban_shares, &None);
-                // Generate recipients matching shares length
-                let mut recipients = soroban_sdk::vec![&env];
-                let mut addrs = soroban_sdk::Vec::new(&env);
-                let mut sdk_shares = soroban_sdk::Vec::new(&env);
-                for share in shares.iter() {
-                    let addr = soroban_sdk::Address::generate(&env);
-                    recipients.push_back(acct(&addr));
-                    addrs.push_back(addr.clone());
-                    sdk_shares.push_back(*share);
-                }
-
-                // Create split and pay
-                // Skip invalid share configurations to focus on conservation for valid ones
-                if client
-                    .try_create_split(&creator, &recipients, &sdk_shares, &None)
-                    .is_err()
-                {
-                    return Ok(());
-                }
-                let id = client.create_split(&creator, &recipients, &sdk_shares, &None);
-
-                let payer = soroban_sdk::Address::generate(&env);
-                let (token_id, token_client) = fund_token(&env, &payer, amount);
-                client.pay(&payer, &id, &token_id, &amount);
-
-                // Sum balances and assert conservation
-                let mut received: i128 = 0;
-                for addr in addrs.iter() {
-                    received += token_client.balance(addr);
-                }
-                if received != amount {
-                    return Err(proptest::test_runner::TestCaseError::fail(
-                        "conservation failed",
-                    ));
-                }
-                    received += token_client.balance(&addr);
-                }
-                proptest::prop_assert_eq!(received, amount);
-                Ok(())
-            },
-        )
-        .is_ok());
 // Turns arbitrary positive weights into basis-point shares that sum to
 // exactly TOTAL_SHARES, using the same floor-with-remainder-to-last approach
 // as `amounts` in lib.rs, so `create_split`'s share-total check accepts them.
