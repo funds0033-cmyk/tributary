@@ -27,6 +27,30 @@ Persistent entries get their TTL extended to about 120 days whenever a split is 
 
 ### Money paths
 
+```mermaid
+flowchart TB
+    subgraph Pay[Direct Payment - pay]
+        P1[Payer] -- "pay(id, token, amount)" --> C[Splitter Contract]
+        C -- "per-share transfer" --> A1[Account Recipient]
+        C -- "transfer to vault + credit" --> CB[Child Split Balance]
+    end
+
+    subgraph Escrow[Deposit & Distribute]
+        P2[Payer] -- "deposit(id, token, amount)" --> C
+        C -- "credit" --> B[Balance(id, token)]
+        B -- "distribute(id, token)" --> C
+        C -- "per-share transfer" --> A2[Account Recipient]
+        C -- "credit" --> CB2[Child Split Balance]
+    end
+
+    subgraph Nested[Nested Split Routing]
+        CB -- "distribute(child, token)" --> C
+        CB2 -- "distribute(child, token)" --> C
+        C -- "per-share transfer" --> L1[Leaf Account]
+        C -- "credit" --> GC[Grandchild Balance]
+    end
+```
+
 Direct payment: `pay(from, id, token, amount)` transfers from the payer to every recipient inside one invocation. Nothing is held.
 
 Escrow: `deposit(from, id, token, amount)` moves funds into the contract and credits `Balance(id, token)`. `distribute(id, token)` later pays the whole credited balance out following the split's shares. Distribution is permissionless because the routing table alone decides where funds go.
