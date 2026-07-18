@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { motion } from "motion/react";
 import { EXPLORER, recipientLabel, SplitView } from "../lib/tributary";
 import { useTranslation } from "../lib/i18n";
@@ -15,7 +16,6 @@ export default function SplitList({
   onOpenSplit: (id: string) => void;
 }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
   if (loading) return <p className="note">{t("loadingSplits")}</p>;
