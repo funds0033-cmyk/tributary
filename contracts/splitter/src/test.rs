@@ -1318,14 +1318,16 @@ fn distribute_pays_out_the_fee_adjusted_balance() {
     // distributing it does not try to move more than the vault has.
     assert_eq!(distributed, 450);
     assert_eq!(token_client.balance(&s.client.address), 0);
+}
+
 // #109: randomized conservation fuzz test using the in-harness test PRNG.
 // Generates many random (shares, amount) combinations and asserts that the
 // splitter conserves funds: amount-in == amount-out, with no panic/wrap.
 #[test]
 fn conservation_holds_across_random_splits() {
+    const ITERATIONS: u32 = 256;
     let s = setup();
     let creator = Address::generate(&s.env);
-    const ITERATIONS: u32 = 256;
 
     // Seed the in-harness PRNG once so that successive iterations draw
     // DIFFERENT pseudo-random inputs (re-seeding each iteration would make
@@ -1386,9 +1388,8 @@ fn conservation_holds_across_random_splits() {
             Some((shares_vec, recipients_vec, addrs_vec, amount))
         });
 
-        let (shares, recipients, addrs, amount) = match generated {
-            Some(v) => v,
-            None => continue,
+        let Some((shares, recipients, addrs, amount)) = generated else {
+            continue;
         };
 
         let id = s.client.create_split(&creator, &recipients, &shares, &None);
