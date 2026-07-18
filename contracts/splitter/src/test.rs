@@ -566,6 +566,57 @@ fn nested_portions_credit_the_child_split() {
 }
 
 #[test]
+fn distribute_routes_two_level_tree_end_to_end() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let payer = Address::generate(&s.env);
+    let alice = Address::generate(&s.env);
+    let bob = Address::generate(&s.env);
+    let carol = Address::generate(&s.env);
+    let dave = Address::generate(&s.env);
+    let (token_id, token_client) = fund_token(&s.env, &payer, 1_000);
+
+    let engineering = s.client.create_split(
+        &creator,
+        &vec![&s.env, acct(&alice), acct(&bob)],
+        &vec![&s.env, 5_000, 5_000],
+        &None,
+    );
+    let design = s.client.create_split(
+        &creator,
+        &vec![&s.env, acct(&carol), acct(&dave)],
+        &vec![&s.env, 7_500, 2_500],
+        &None,
+    );
+    let root = s.client.create_split(
+        &creator,
+        &vec![
+            &s.env,
+            Recipient::Split(engineering),
+            Recipient::Split(design),
+        ],
+        &vec![&s.env, 6_000, 4_000],
+        &None,
+    );
+
+    s.client.deposit(&payer, &root, &token_id, &1_000);
+    s.client.distribute(&root, &token_id);
+
+    assert_eq!(s.client.balance(&root, &token_id), 0);
+    assert_eq!(s.client.balance(&engineering, &token_id), 600);
+    assert_eq!(s.client.balance(&design, &token_id), 400);
+
+    s.client.distribute(&engineering, &token_id);
+    s.client.distribute(&design, &token_id);
+
+    assert_eq!(token_client.balance(&alice), 300);
+    assert_eq!(token_client.balance(&bob), 300);
+    assert_eq!(token_client.balance(&carol), 300);
+    assert_eq!(token_client.balance(&dave), 100);
+    assert_eq!(token_client.balance(&s.client.address), 0);
+}
+
+#[test]
 fn rejects_missing_or_self_referencing_children() {
     let s = setup();
     let creator = Address::generate(&s.env);
