@@ -1851,3 +1851,25 @@ fn conservation_holds_across_random_splits() {
         assert_eq!(received, amount, "conservation broken for random split");
     }
 }
+
+#[test]
+fn single_recipient_gets_full_amount() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let a = Address::generate(&s.env);
+    let payer = Address::generate(&s.env);
+    let amount: i128 = 1_000_000;
+    let (token_id, token_client) = fund_token(&s.env, &payer, amount);
+
+    let id = s.client.create_split(
+        &creator,
+        &vec![&s.env, acct(&a)],
+        &vec![&s.env, 10_000],
+        &None,
+    );
+
+    s.client.pay(&payer, &id, &token_id, &amount);
+
+    assert_eq!(token_client.balance(&a), amount);
+    assert_eq!(token_client.balance(&payer), 0);
+}
