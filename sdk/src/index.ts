@@ -56,6 +56,11 @@ export const Errors = {
   13: {message:"NoPendingTransfer"},
 }
 
+export function decode(code: number): string | undefined {
+  return (Errors as Record<number, { message: string }>)[code]?.message;
+}
+
+
 
 export interface Split {
   controller: Option<string>;
