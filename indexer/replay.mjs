@@ -24,7 +24,12 @@ export function decode(ev) {
 }
 
 export function cursorLedger(cursor) {
-  return Number(BigInt(cursor.split("-")[0]) >> 32n);
+  if (typeof cursor !== "string" || !cursor.includes("-")) return null;
+  try {
+    return Number(BigInt(cursor.split("-")[0]) >> 32n);
+  } catch {
+    return null;
+  }
 }
 
 export function parseLedgerRange(start, end) {

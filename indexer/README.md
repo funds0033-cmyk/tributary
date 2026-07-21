@@ -10,6 +10,14 @@ npm install
 npm start
 ```
 
+To re-scan from a specific ledger without editing `state.json`, pass
+`--from-ledger`. It overrides the saved cursor for the initial scan, then normal
+cursor persistence resumes:
+
+```bash
+npm start -- --from-ledger 581235
+```
+
 Each event becomes one line in `events.ndjson`:
 
 ```json
@@ -33,7 +41,14 @@ cursor in `STATE`.
 
 ## Configuration
 
+Copy `.env.example` to `.env` and override any values you need:
+
+```bash
+cp .env.example .env
+```
+
 Environment variables, all optional:
+
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -42,6 +57,9 @@ Environment variables, all optional:
 | `OUT` | `events.ndjson` | output file |
 | `STATE` | `state.json` | cursor file |
 | `POLL_MS` | `10000` | poll interval |
+| `BACKOFF_INITIAL_MS` | `1000` | initial delay after an RPC rate-limit response |
+| `BACKOFF_MAX_MS` | `60000` | maximum exponential backoff delay |
+| `LOG_LEVEL` | `info` | log verbosity (`debug`, `info`, `warn`, `error`) |
 
 ## Docker
 
@@ -82,6 +100,9 @@ By default, the Docker image is configured to write to `/app/data/events.ndjson`
 | `OUT` | `/app/data/events.ndjson` | Output events file path |
 | `STATE` | `/app/data/state.json` | Cursor state file path |
 | `POLL_MS` | `10000` | Polling interval in milliseconds |
+| `BACKOFF_INITIAL_MS` | `1000` | Initial rate-limit backoff delay in milliseconds |
+| `BACKOFF_MAX_MS` | `60000` | Maximum rate-limit backoff delay in milliseconds |
+| `LOG_LEVEL` | `info` | Log verbosity (`debug`, `info`, `warn`, `error`) |
 
 ## CSV export
 
