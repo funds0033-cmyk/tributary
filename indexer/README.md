@@ -35,7 +35,7 @@ npm run replay -- 580000 590000
 ```
 
 The replay command uses the same `RPC_URL`, `CONTRACT_ID`, and `OUT` configuration as
-the poller. Events are upserted by their RPC event ID, so running the same replay more
+the poller. Events are inserted or updated by their RPC event ID, so running the same replay more
 than once produces the same stored output. Replay does not change the live poller's
 cursor in `STATE`.
 
